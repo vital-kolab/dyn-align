@@ -1,7 +1,7 @@
 """
-Decode Object Direction from ANN Model Features using RNN Classification
+Decode Object Direction from ANN Model Features using Linear Classification
 This script processes ANN (Artificial Neural Network) model features to classify object
-direction using Recurrent Neural Networks (RNN) with 10-fold cross-validation,
+direction using LDA with 10-fold cross-validation,
 training on RGB features and testing on both RGB and AFV features.
 The script:
 1. Loads pre-computed ANN model features for RGB and AFV videos from HDF5 files with shape [n_frames, videos, units, model_repetitions]
@@ -9,7 +9,7 @@ The script:
 3. Distributes classification tasks across multiple CPU cores using multiprocessing
 4. For each combination of (split_repetition, time_bin, model_repetition):
     - Extracts model features for the specific time bin and model repetition for both RGB and AFV data
-    - Performs RNN classification with 10-fold cross-validation training on RGB features and testing on both RGB and AFV features
+    - Performs linear classification with 10-fold cross-validation training on RGB features and testing on both RGB and AFV features
     - Computes per-class I1 (information integration) scores for RGB and AFV predictions
     - Stores results in shared numpy arrays
 5. Saves the per-class classification scores for both modalities to an HDF5 output file
@@ -28,7 +28,7 @@ sys.path.append('../')
 import os
 import h5py
 import numpy as np
-from utils.classification import compute_i1, get_rnn_classifications_rgb_afv
+from utils.classification import compute_i1, get_classifications_rgb_afv
 import multiprocessing as mp 
 from multiprocessing.managers import BaseManager
 
@@ -55,7 +55,7 @@ def compute_scores(process_id, parallelizations, classification_scores_rgb, clas
         assert current_data_rgb.shape[0] == object_labels.shape[0]
 
         # Classify using RNN with 10-fold cross-validation
-        preds_rgb, probs_rgb, preds_afv, probs_afv = get_rnn_classifications_rgb_afv(current_data_rgb, current_data_afv, object_labels, model_config=model_config, nrfolds=10, seed=np.random.randint(1000), standardize=True)
+        preds_rgb, probs_rgb, preds_afv, probs_afv = get_classifications_rgb_afv(current_data_rgb, current_data_afv, object_labels, model_config=model_config, nrfolds=10, seed=np.random.randint(1000), standardize=True)
 
         i1_rgb, i1_rgb_std, i1_rgb_all = compute_i1(probs_rgb, object_labels, return_scores=True)
         i1_afv, i1_afv_std, i1_afv_all = compute_i1(probs_afv, object_labels, return_scores=True)
@@ -151,7 +151,7 @@ if __name__ == "__main__":
     # Save results
     os.makedirs(os.path.join(scores_save_path, features_rgb_filename), exist_ok=True)
 
-    save_file_name = f"decode_ann_obj_dir_rnn_rgb2afv.h5" 
+    save_file_name = f"decode_ann_obj_dir_linear_rgb2afv.h5" 
     output_h5_path = os.path.join(scores_save_path, features_rgb_filename, save_file_name)
     with h5py.File(output_h5_path, 'w') as h5_file:
         h5_file.create_dataset("i1_all_rgb", data=classification_scores_rgb)

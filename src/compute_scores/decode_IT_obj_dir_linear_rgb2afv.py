@@ -1,15 +1,15 @@
 """
 Decode Object Direction from Neural Recordings using RNN Classification
-This script processes neural recordings to classify object direction using LSTM
+This script processes neural recordings to classify object direction using a linear decoder
 with 10-fold cross-validation, 
-training on AFV neural data and testing on both AFV and RGB neural data.
+training on RGB neural data and testing on both RGB and AFV neural data.
 The script:
 1. Loads pre-computed neural recordings for RGB and AFV videos from HDF5 files with shape [n_time_bins, videos, sites]
 2. Loads object direction labels corresponding to each video
 3. Distributes classification tasks across multiple CPU cores using multiprocessing
 4. For each combination of (split_repetition, time_bin):
     - Extracts neural recordings up to the specific time bin for both RGB and AFV data
-    - Performs RNN classification with 10-fold cross-validation training on AFV neural data and testing on both AFV and RGB neural data
+    - Performs linear classification with 10-fold cross-validation training on RGB neural data and testing on both RGB and AFV neural data
     - Computes per-class I1 (information integration) scores for RGB and AFV predictions
     - Stores results in shared numpy arrays
 5. Saves the per-class classification scores for both modalities to an HDF5 output file
@@ -28,7 +28,7 @@ sys.path.append('../')
 import os
 import h5py
 import numpy as np
-from utils.classification import compute_i1, get_rnn_classifications_rgb_afv
+from utils.classification import compute_i1, get_classifications_rgb_afv
 import multiprocessing as mp 
 from multiprocessing.managers import BaseManager
 
@@ -53,7 +53,7 @@ def compute_scores(process_id, parallelizations, classification_scores_rgb, clas
         assert current_data_rgb.shape[1] == object_labels.shape[0]
 
         # Classify using RNN with 10-fold cross-validation
-        preds_afv, probs_afv, preds_rgb, probs_rgb = get_rnn_classifications_rgb_afv(current_data_afv, current_data_rgb, object_labels, model_config=model_config, nrfolds=10, seed=np.random.randint(1000), standardize=True)
+        preds_rgb, probs_rgb, preds_afv, probs_afv = get_classifications_rgb_afv(current_data_rgb, current_data_afv, object_labels, nclasses=8, nfolds=10, seed=np.random.randint(1000), standardize=True)
 
         i1_rgb, i1_rgb_std, i1_rgb_all = compute_i1(probs_rgb, object_labels, return_scores=True)
         i1_afv, i1_afv_std, i1_afv_all = compute_i1(probs_afv, object_labels, return_scores=True)
@@ -99,17 +99,6 @@ if __name__ == "__main__":
     object_labels = np.genfromtxt('[your label file]', delimiter='\n', dtype=np.int64)
     assert object_labels.shape[0] == neural_recordings_rgb.shape[1]
 
-    # Configuration for RNN model decoder
-    model_config = dict(
-        hidden_dim=200,
-        output_dim=8, 
-        model='lstm',
-        num_layers=1,
-        patience=100, 
-        max_epochs=200,
-        learning_rate=1e-2, 
-        verbose=False
-    )
 
     # Create shared array for results across processes
     m = MyManager()
@@ -131,7 +120,7 @@ if __name__ == "__main__":
         start = i * chunk_size
         end = n_parallelizations if i == num_processes - 1 else (i + 1) * chunk_size
         p = mp.Process(target=compute_scores, args=(i, parallelizations, classification_scores_rgb, classification_scores_afv,
-                                                     neural_recordings_rgb, neural_recordings_afv, object_labels, model_config,
+                                                     neural_recordings_rgb, neural_recordings_afv, object_labels,
                                                      split_repetitions, start, end))
         processes.append(p)
         p.start()
@@ -146,7 +135,7 @@ if __name__ == "__main__":
     # Save results
     os.makedirs(os.path.join(scores_save_path, recordings_rgb_filename), exist_ok=True)
 
-    save_file_name = f"decode_IT_obj_dir_rnn_rgb2afv.h5" 
+    save_file_name = f"decode_IT_obj_dir_linear_rgb2afv.h5" 
     output_h5_path = os.path.join(scores_save_path, recordings_rgb_filename, save_file_name)
     with h5py.File(output_h5_path, 'w') as h5_file:
         h5_file.create_dataset("i1_all_rgb", data=classification_scores_rgb)

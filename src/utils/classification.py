@@ -154,6 +154,116 @@ def get_classifications(rates, targets, model='logreg', nclasses=10, return_weig
      
     return ypred, yprob
 
+def get_classifications_rgb_afv(rates, rates_afv, targets, model='lda', n_classes=8, ncomp=10, nrfolds=10, seed=0, standardize=False):
+    """Compute cross-validated classifications for RGB and AFV feature sets.
+
+    This function uses cross-validation to train a classifier on RGB training data
+    and predict labels and class score probabilities for both RGB and AFV test data.
+    Predictions are collected across all folds and returned in the original image order.
+
+    Parameters
+    ----------
+    rates : ndarray, shape (n_images, n_features)
+        RGB feature matrix for all images.
+    rates_afv : ndarray, shape (n_images, n_features)
+        AFV feature matrix for all images.
+    targets : ndarray, shape (n_images,)
+        Class labels for each image used as training targets.
+    model : str, optional
+        Classifier model to use. Currently accepted value is 'lda'.
+    n_classes : int, optional
+        Number of classes for probability score outputs.
+    ncomp : int, optional
+        Number of LDA components to use.
+    nrfolds : int, optional
+        Number of cross-validation folds.
+    seed : int, optional
+        Random seed used to generate fold splits.
+    standardize : bool, optional
+        If True, standardize features using the training fold statistics.
+
+    Returns
+    -------
+    ypred : ndarray, shape (n_images,)
+        Predicted class labels for RGB test images across all folds.
+    ypred_scores : ndarray, shape (n_images, n_classes)
+        Class probability scores for RGB test images.
+    ypred_afv : ndarray, shape (n_images,)
+        Predicted class labels for AFV test images across all folds.
+    ypred_afv_scores : ndarray, shape (n_images, n_classes)
+        Class probability scores for AFV test images.
+    """
+    
+    nrImages = rates.shape[0]
+    ypred = np.arange(nrImages, dtype=float)
+    ypred[:] = np.nan
+    ypred_scores = np.zeros((nrImages, n_classes), dtype=float) + np.nan
+
+    ypred_afv = np.arange(nrImages, dtype=float)
+    ypred_afv[:] = np.nan
+    ypred_afv_scores = np.zeros((nrImages, n_classes), dtype=float) + np.nan
+    
+    for i in range(nrfolds): # at each fold, we predict disjoint test images and store them
+        train, test = get_train_test_indices(nrImages, nrfolds=nrfolds, foldnumber=i, seed=seed) # return indices of train and test samples
+
+        x_train, x_test, x_test_afv = rates[train], rates[test], rates_afv[test]
+        
+        if standardize:
+            x_train_mean, x_train_std = np.nanmean(np.reshape(x_train, (-1, x_train.shape[-1])), 0), np.nanstd(np.reshape(x_train, (-1, x_train.shape[-1])), 0)
+            x_train = (x_train - x_train_mean[np.newaxis, :]) / x_train_std[np.newaxis,  :]
+            x_test = (x_test - x_train_mean[np.newaxis,  :]) / x_train_std[np.newaxis,  :]
+            x_test_afv = (x_test_afv - x_train_mean[np.newaxis,  :]) / x_train_std[np.newaxis,  :]
+
+        pred, pred_scores, pred_afv, pred_afv_scores = classify_rgb_afv_lda(x_train, targets[train], x_test, x_test_afv, ncomp=ncomp)
+       
+        np.put(ypred, test, pred)
+        ypred_scores[test] = pred_scores
+
+        np.put(ypred_afv, test, pred_afv)
+        ypred_afv_scores[test] = pred_afv_scores
+
+    # at the end of the for loop, ypred contains the predicted neural recordings for all the images in the dataset
+    return ypred, ypred_scores, ypred_afv, ypred_afv_scores
+
+def classify_rgb_afv_lda(X_train, Y_train, X_test, X_test_afv, ncomp=20):
+    """
+    Train an LDA classifier on RGB training data and predict on both RGB and AFV test data.
+
+    Parameters
+    ----------
+    X_train : ndarray of shape (n_train_samples, n_features)
+        Training features used to fit the classifier.
+    Y_train : ndarray of shape (n_train_samples,)
+        Training class labels.
+    X_test : ndarray of shape (n_test_samples, n_features)
+        Test features from the RGB stimulus set.
+    X_test_afv : ndarray of shape (n_test_samples, n_features)
+        Test features from the AFV stimulus set.
+    ncomp : int, optional
+        Number of LDA components to use. Default is 20.
+
+    Returns
+    -------
+    Y_test_pred : ndarray of shape (n_test_samples,)
+        Predicted labels for RGB test samples.
+    Y_test_scores : ndarray of shape (n_test_samples, n_classes)
+        Class probability estimates for RGB test samples.
+    Y_test_pred_afv : ndarray of shape (n_test_samples,)
+        Predicted labels for AFV test samples.
+    Y_test_afv_scores : ndarray of shape (n_test_samples, n_classes)
+        Class probability estimates for AFV test samples.
+    """
+
+    lda = OneVsRestClassifier(LinearDiscriminantAnalysis(n_components=ncomp, solver='lsqr', shrinkage='auto'))
+    lda.fit(X_train, Y_train)
+
+    Y_test_pred = lda.predict(X_test)
+    Y_test_scores = lda.predict_proba(X_test)
+    Y_test_pred_afv = lda.predict(X_test_afv)
+    Y_test_afv_scores = lda.predict_proba(X_test_afv)
+
+    return Y_test_pred, Y_test_scores, Y_test_pred_afv, Y_test_afv_scores
+
 def rnn_classify(X_train, Y_train, X_test, model_config=None):
     """
     RNN-based classification using ShallowRNN model.
