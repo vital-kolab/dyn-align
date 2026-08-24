@@ -1,5 +1,5 @@
 
-# Video world models reveal a primate-brain like object-motion code missing from current AI
+# Primate vision reveals a missing principle for robust dynamic AI
 
 Source code accompanying the paper investigating how artificial neural networks and primate visual cortex process dynamic visual information during object motion discrimination tasks.
 
